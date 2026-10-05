@@ -1352,7 +1352,8 @@ async function netPlotAct(k,a){
 // 登入畫面
 function loginScreen(msg){
   const L=document.getElementById('layer');L.innerHTML=`<div class="scrim" style="align-items:center"><div class="sheet panel" role="dialog" aria-modal="true" style="max-width:380px">
-   <h3>好友菜園</h3><p class="hint">用 Email 登入，不需要密碼。輸入信箱後會收到一封信，把信裡的 <b>6 位數驗證碼</b>填進來就能登入。</p>
+   <h3>好友菜園</h3><button class="btn alt" id="lgg" style="display:flex;align-items:center;justify-content:center;gap:8px"><b style="font:900 18px Arial,sans-serif;color:#4285f4">G</b>用 Google 帳號登入</button>
+   <p class="hint" style="text-align:center;margin:0">或用 Email 登入</p><p class="hint">輸入信箱後會收到一封信，把信裡的 <b>6 位數驗證碼</b>填進來，或點信裡的連結就能登入。</p>
    <input class="txt" id="lem" type="email" inputmode="email" autocomplete="email" placeholder="你的 Email" aria-label="Email">
    <button class="btn" id="lgo">寄驗證碼</button>
    <div id="lcode" hidden style="display:flex;flex-direction:column;gap:10px"><input class="txt" id="ltok" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="信裡的驗證碼" aria-label="驗證碼" style="letter-spacing:6px;text-align:center;font-size:22px"><button class="btn blue" id="lver">登入</button></div>
@@ -1367,6 +1368,7 @@ function loginScreen(msg){
     $('#lver').disabled=true;m.textContent='登入中…';const r=await sb.auth.verifyOtp({email:em,token:t,type:'email'});
     if(r.error){$('#lver').disabled=false;m.textContent=/expired|invalid/i.test(r.error.message)?'驗證碼錯誤或已過期，請按「重新寄送」再試一次。':'登入失敗：'+r.error.message;return}
     location.replace(location.origin+location.pathname)};
+  $('#lgg').onclick=async()=>{$('#lgg').disabled=true;m.textContent='前往 Google 登入…';const r=await sb.auth.signInWithOAuth({provider:'google',options:{redirectTo:location.origin+location.pathname}});if(r&&r.error){$('#lgg').disabled=false;m.textContent=/not enabled|provider/i.test(r.error.message)?'Google 登入還沒開放，請先用 Email 登入。':'Google 登入失敗：'+r.error.message}};
   $('#lgo').onclick=send;$('#lem').addEventListener('keydown',e=>{if(e.key==='Enter')send()});
   $('#lver').onclick=verify;$('#ltok').addEventListener('keydown',e=>{if(e.key==='Enter')verify()});
 }
