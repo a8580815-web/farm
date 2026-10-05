@@ -1274,7 +1274,8 @@ const Net={
   async init(){sb=window.supabase.createClient(SB_URL,SB_KEY);const r=await sb.auth.getSession();return r.data&&r.data.session},
   login:email=>sb.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+location.pathname}}),
   async logout(){await Net.flush();await sb.auth.signOut();location.replace(location.origin+location.pathname)},
-  async profile(uid){for(let i=0;i<5;i++){const r=await sb.from('profiles').select('*').eq('id',uid).maybeSingle();if(r.data)return r.data;await new Promise(z=>setTimeout(z,600))}return null},
+  async profile(uid){let err='';for(let i=0;i<3;i++){const r=await sb.from('profiles').select('*').eq('id',uid).maybeSingle();if(r.data)return r.data;if(r.error)err=r.error.message;await new Promise(z=>setTimeout(z,500))}
+    const e=await sb.rpc('ensure_profile');if(e.data&&e.data.id)return e.data;Net.lastErr=(e.error&&e.error.message)||err||'no profile';return null},
   async loadMine(){const r=await sb.from('farms').select('state').eq('owner',ME.id).maybeSingle();return r.data&&r.data.state},
   cloudState(){const o=JSON.parse(JSON.stringify(S));o.farms={};return o},
   saveMine(){return sb.from('farms').upsert({owner:ME.id,state:Net.cloudState(),updated_at:new Date().toISOString()}).then(Net.ok)},
@@ -1351,23 +1352,36 @@ async function netPlotAct(k,a){
 // 登入畫面
 function loginScreen(msg){
   const L=document.getElementById('layer');L.innerHTML=`<div class="scrim" style="align-items:center"><div class="sheet panel" role="dialog" aria-modal="true" style="max-width:380px">
-   <h3>好友菜園</h3><p class="hint">用 Email 登入。輸入信箱後會收到一封登入信，點信裡的連結就會回到遊戲，不需要密碼。</p>
+   <h3>好友菜園</h3><p class="hint">用 Email 登入，不需要密碼。輸入信箱後會收到一封信，把信裡的 <b>6 位數驗證碼</b>填進來就能登入。</p>
    <input class="txt" id="lem" type="email" inputmode="email" autocomplete="email" placeholder="你的 Email" aria-label="Email">
-   <button class="btn" id="lgo">寄登入信</button><p class="hint" id="lmsg">${msg||''}</p></div></div>`;
-  const go=async()=>{const em=L.querySelector('#lem').value.trim(),m=L.querySelector('#lmsg');if(!/^\S+@\S+\.\S+$/.test(em)){m.textContent='Email 格式不對';return}
-    L.querySelector('#lgo').disabled=true;m.textContent='寄送中…';const r=await Net.login(em);
-    if(r.error){m.textContent='寄送失敗：'+r.error.message;L.querySelector('#lgo').disabled=false}
-    else m.innerHTML=`登入信已寄到 <b>${esc(em)}</b>。請到信箱點「Log In」連結（找不到請看垃圾郵件）。<br>建議用同一個瀏覽器打開連結。`};
-  L.querySelector('#lgo').onclick=go;L.querySelector('#lem').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+   <button class="btn" id="lgo">寄驗證碼</button>
+   <div id="lcode" hidden style="display:flex;flex-direction:column;gap:10px"><input class="txt" id="ltok" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="信裡的驗證碼" aria-label="驗證碼" style="letter-spacing:6px;text-align:center;font-size:22px"><button class="btn blue" id="lver">登入</button></div>
+   <p class="hint" id="lmsg">${msg||''}</p></div></div>`;
+  const $=q=>L.querySelector(q),m=$('#lmsg');let em='';
+  const send=async()=>{em=$('#lem').value.trim();if(!/^\S+@\S+\.\S+$/.test(em)){m.textContent='Email 格式不對';return}
+    $('#lgo').disabled=true;m.textContent='寄送中…';const r=await Net.login(em);
+    if(r.error){m.textContent=/rate|limit|seconds/i.test(r.error.message)?'寄信太頻繁，請等一下再試（免費方案每小時只能寄幾封）。':'寄送失敗：'+r.error.message;$('#lgo').disabled=false;return}
+    $('#lcode').hidden=false;$('#lgo').textContent='重新寄送';setTimeout(()=>{$('#lgo').disabled=false},30000);$('#ltok').focus();
+    m.innerHTML=`驗證碼已寄到 <b>${esc(em)}</b>，找不到請看垃圾郵件。<br>信裡如果是連結，也可以直接點連結登入。`};
+  const verify=async()=>{const t=$('#ltok').value.replace(/\D/g,'');if(t.length<6){m.textContent='請輸入信裡的驗證碼';return}
+    $('#lver').disabled=true;m.textContent='登入中…';const r=await sb.auth.verifyOtp({email:em,token:t,type:'email'});
+    if(r.error){$('#lver').disabled=false;m.textContent=/expired|invalid/i.test(r.error.message)?'驗證碼錯誤或已過期，請按「重新寄送」再試一次。':'登入失敗：'+r.error.message;return}
+    location.replace(location.origin+location.pathname)};
+  $('#lgo').onclick=send;$('#lem').addEventListener('keydown',e=>{if(e.key==='Enter')send()});
+  $('#lver').onclick=verify;$('#ltok').addEventListener('keydown',e=>{if(e.key==='Enter')verify()});
 }
+// 登入連結失敗時，網址會帶錯誤原因
+function authErrorFromUrl(){const h=new URLSearchParams((location.hash||'').slice(1)),q=new URLSearchParams(location.search);const code=h.get('error_code')||q.get('error_code'),d=h.get('error_description')||q.get('error_description');
+  if(!code&&!d)return '';history.replaceState(null,'',location.pathname);
+  return code==='otp_expired'?'登入連結已失效（可能被信箱預先點開過，或已超過時間）。請改用驗證碼登入。':'登入失敗：'+(d||code).replace(/\+/g,' ')}
 async function boot(){
   if(!ONLINE)return start(window.claude?.hot?.data??{});
   document.getElementById('layer').innerHTML='<div class="toast panel" style="top:45%">連線中…</div>';
   let session=null;
   try{session=await Net.init()}catch(e){document.getElementById('layer').innerHTML='';return loginScreen('連不上伺服器，請確認網路後重新整理。')}
-  if(!session){document.getElementById('layer').innerHTML='';return loginScreen()}
+  if(!session){document.getElementById('layer').innerHTML='';return loginScreen(authErrorFromUrl())}
   ME=await Net.profile(session.user.id);
-  if(!ME){document.getElementById('layer').innerHTML='';return loginScreen('讀不到玩家資料，請重新整理再試一次。')}
+  if(!ME){document.getElementById('layer').innerHTML='';return loginScreen('讀不到玩家資料，請重新整理再試一次。（'+esc(Net.lastErr||'')+'）<br><button class="linkbtn" id="lout">登出換帳號</button>'),document.getElementById('lout')?.addEventListener('click',()=>Net.logout())}
   ME.email=session.user.email;
   let cloud=null;try{cloud=await Net.loadMine()}catch(e){}
   document.getElementById('layer').innerHTML='';
