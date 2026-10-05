@@ -234,13 +234,16 @@ input.txt{font:inherit;font-size:16px;padding:8px 10px;border:3px solid var(--in
 <div id="pop" class="pop panel" hidden></div>
 <div id="layer"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* =========================================================
    資料層：之後接伺服器時，只要換掉 Store（load/save/friends）
    ========================================================= */
 const Store={
-  load(){try{const r=localStorage.getItem('farm-v4');return r?JSON.parse(r):null}catch(e){return null}},
-  save(s){try{localStorage.setItem('farm-v4',JSON.stringify(s))}catch(e){}}
+  key(){return (typeof ME!=='undefined'&&ME)?'farm-v4-'+ME.id:'farm-v4'},
+  load(){try{const r=localStorage.getItem(Store.key());return r?JSON.parse(r):null}catch(e){return null}},
+  save(s){s.savedAt=Date.now();try{localStorage.setItem(Store.key(),JSON.stringify(s))}catch(e){}
+    if(ONLINE&&ME){Net.queue();if(s.name!==ME.name||s.avatar!==ME.avatar){ME.name=s.name;ME.avatar=s.avatar;Net.updateProfile({name:s.name,avatar:s.avatar})}}}
 };
 
 /* ---------- 遊戲設定 ---------- */
@@ -278,12 +281,12 @@ const PET_FOOD=20, FOOD_STAMINA=50, PLAY_COST=20, PET_DAILY=20;const HOUSES={
 };
 const CHIEF='0001';
 const POOL=[{id:CHIEF,name:'村長',c:'#d99a0b',npc:true}];   // 上線前唯一的電腦好友；真人好友之後由伺服器提供
-const P=id=>POOL.find(p=>p.id===id);
+const P=id=>POOL.find(p=>p.id===id)||NETF[id];
 const AVATARS=[['av_boy1','男孩'],['av_girl1','女孩'],['av_boy2','戴帽男孩'],['av_girl2','綁辮女孩'],['av_cat','貓咪'],['av_dog','狗狗'],['av_bunny','兔兔'],['av_bear','小熊'],['av_panda','熊貓'],['av_fox','狐狸']];
 const avOk=id=>!!SZ[id];
 const friendAv=fid=>{const ok=AVATARS.filter(a=>avOk(a[0]));return ok.length?ok[Math.floor(hsh(fid+'av')*ok.length)][0]:null};
 function avHtml(id,size,col,letter,cls=''){return id&&avOk(id)?`<span class="avimg ${cls}" style="width:${size}px;height:${size}px"><img src="${A(id)}" alt=""></span>`:`<span class="mini ${cls}" style="background:${col};width:${size}px;height:${size}px;font-size:${Math.round(size*.42)}px">${esc(letter)}</span>`}
-const fAv=(p,size)=>avHtml(p.npc&&SZ.av_chief?'av_chief':friendAv(p.id),size,p.c,p.name[0]);
+const fAv=(p,size)=>avHtml(p.npc&&SZ.av_chief?'av_chief':(p.avatar&&avOk(p.avatar)?p.avatar:friendAv(p.id)),size,p.c,p.name[0]);
 const isNpc=f=>!!(P(f)&&P(f).npc);
 const SIDE=8, MAX_PLOTS=SIDE*SIDE, START_PLOTS=4, MAX_FAMILY=4, STEAL_CAP=3, HELP_CAP=6, FPAT_CAP=5;
 const plotReqLv=n=>1+Math.floor((n-START_PLOTS)/3);      // 第 n+1 塊地需要的等級
@@ -348,7 +351,7 @@ function welcomeMail(s){const o=S;S=s;addMail('歡迎來到好友菜園！','嗨
 const level=()=>Math.floor(Math.sqrt(S.xp/20))+1, lvXp=l=>20*(l-1)*(l-1);
 function addLog(m){S.log.unshift({t:Date.now(),m});S.log=S.log.slice(0,40);showTicker(m)}
 const isFam=f=>S.family.includes(f);
-function farmOf(f){if(!S.farms[f])S.farms[f]=genFarm(f);return S.farms[f]}
+function farmOf(f){if(!S.farms[f])S.farms[f]=isReal(f)?{n:0,plots:[],pet:'dog:shiba',bondLv:0,fed:false,real:true}:genFarm(f);return S.farms[f]}
 const known=f=>f==='me'||isFam(f)||!!(S.known[periodKey()]||{})[f];
 const petAwake=()=>S.pet.full>=15;
 
@@ -370,16 +373,16 @@ function petDecay(){const now=Date.now(),hrs=(now-S.pet.t)/H*speed();S.pet.full=
 function sim(){
   const now=Date.now(),step=10*60e3/speed();
   let n=Math.min(12,Math.floor((now-S.lastSim)/step));if(n<1)return;S.lastSim+=n*step;if(now-S.lastSim>step)S.lastSim=now;
-  const thieves=S.friends.filter(f=>!isFam(f)&&!isNpc(f));
+  const thieves=ONLINE?[]:S.friends.filter(f=>!isFam(f)&&!isNpc(f));
   for(let i=0;i<n;i++)S.plots.forEach(pl=>{const x=st(pl,now);if(x.kind!=='crop')return;
     if(x.ripe&&now-pl.t-pl.d>step&&yieldOf(pl)>1&&thieves.length&&Math.random()<.12){
       const f=P(pick(thieves));
       if(petAwake()&&Math.random()<guardRate(bondLv(S.pet.bond)))addLog(`${f.name}想偷你的${CROPS[pl.c].n}，被${petName()}發現跑掉了`);
       else{pl.s++;addLog(`${f.name} 偷走你 1 個${CROPS[pl.c].n}`)}
-    }else if((x.bug||x.dry)&&S.family.length&&Math.random()<.1){const f=P(pick(S.family));if(x.dry){pl.df=true;addLog(`家人${f.name}幫你的${CROPS[pl.c].n}澆了水`)}else{pl.bf=true;addLog(`家人${f.name}幫你的${CROPS[pl.c].n}除了蟲`)}}
+    }else if((x.bug||x.dry)&&!ONLINE&&S.family.length&&Math.random()<.1){const f=P(pick(S.family));if(x.dry){pl.df=true;addLog(`家人${f.name}幫你的${CROPS[pl.c].n}澆了水`)}else{pl.bf=true;addLog(`家人${f.name}幫你的${CROPS[pl.c].n}除了蟲`)}}
   });
 }
-function refreshFarm(f){if(isNpc(f)){const F=farmOf(f),now=Date.now();F.n=CHIEF_N;F.plots=F.plots.slice(0,CHIEF_N).map((pl,i)=>(!pl.c||now-pl.t>pl.d*1.8||(st(pl).ripe&&yieldOf(pl)<=1))?chiefPlot(now,i%3===0):pl);while(F.plots.length<CHIEF_N)F.plots.push(chiefPlot(now,false));F.fed=true;F.bondLv=0;F.pet='dog:golden';return}
+function refreshFarm(f){if(S.farms[f]&&S.farms[f].real)return;if(isNpc(f)){const F=farmOf(f),now=Date.now();F.n=CHIEF_N;F.plots=F.plots.slice(0,CHIEF_N).map((pl,i)=>(!pl.c||now-pl.t>pl.d*1.8||(st(pl).ripe&&yieldOf(pl)<=1))?chiefPlot(now,i%3===0):pl);while(F.plots.length<CHIEF_N)F.plots.push(chiefPlot(now,false));F.fed=true;F.bondLv=0;F.pet='dog:golden';return}
   const F=farmOf(f),now=Date.now();F.plots=F.plots.map(pl=>{if(!pl.c)return Math.random()<.5?pl:(()=>{const c=pick(CK.slice(0,5));return newPlot(c,now-CROPS[c].g*H/speed()*rnd(0,.5))})();if(now-pl.t>pl.d*1.8){const c=pick(CK.slice(0,5));return newPlot(c,now-CROPS[c].g*H/speed()*rnd(0,.8))}return pl})}
 
 /* =========================================================
@@ -391,7 +394,7 @@ const FARM0={gx:5,gy:5};
 const iso=(gx,gy)=>({x:(gx-gy)*TW/2,y:(gx+gy)*TH/2});
 // 擴建順序：從角落一圈一圈往外長成正方形，每塊地的格子位置固定不變
 const RING=(()=>{const o=[];for(let r=0;r<SIDE;r++){for(let i=0;i<=r;i++)o.push([r,i]);for(let i=r-1;i>=0;i--)o.push([i,r])}return o})();
-const plotGrid=k=>{if(at==='me'&&S&&S.plotPos&&S.plotPos[k])return {gx:S.plotPos[k][0],gy:S.plotPos[k][1]};return {gx:FARM0.gx+RING[k][0],gy:FARM0.gy+RING[k][1]}};
+const plotGrid=k=>{if(at==='me'&&S&&S.plotPos&&S.plotPos[k])return {gx:S.plotPos[k][0],gy:S.plotPos[k][1]};if(at!=='me'&&S&&S.farms[at]&&S.farms[at].pos&&S.farms[at].pos[k])return {gx:S.farms[at].pos[k][0],gy:S.farms[at].pos[k][1]};return {gx:FARM0.gx+RING[k][0],gy:FARM0.gy+RING[k][1]}};
 // 下一塊地的建議位置：貼著現有農地的第一個空格
 function nextPlotCell(){
   const occ=occupied(),cand=[];
@@ -469,7 +472,8 @@ function defaultFixtures(){
   return f;
 }
 const DEFAULT_FIX=defaultFixtures();
-const fixOf=id=>(at==='me'?S.fixtures:DEFAULT_FIX).find(f=>f.id===id);
+const otherFx=()=>(S.farms[at]&&S.farms[at].fx)||DEFAULT_FIX;
+const fixOf=id=>(at==='me'?S.fixtures:otherFx()).find(f=>f.id===id);
 function petSpot(fx){const p=(fx||[]).find(f=>f.k==='pethouse')||{gx:6,gy:2};const r=rotOf(p);return (r===1||r===2)?{x:p.gx+1.8,y:p.gy+.3}:{x:p.gx+.3,y:p.gy+1.8}}
 const BAX={doghouse_b:.5,cathouse_b:.47};
 const rotOf=o=>o?(o.rot!=null?o.rot:(o.flip?1:0)):0;
@@ -481,12 +485,12 @@ function sceneObjects(owner){
   const plots=mine?S.plots:farmOf(owner).plots;
   const objs=[];
   const add=(z,svg)=>objs.push({z,svg});
-  const FX_=mine?S.fixtures:DEFAULT_FIX, moving=id=>placing&&placing.fixId===id?' opacity=".35"':'';
+  const FX_=mine?S.fixtures:(farmOf(owner).fx||DEFAULT_FIX), moving=id=>placing&&placing.fixId===id?' opacity=".35"':'';
   const pid=mine?S.pet.id:farmOf(owner).pet, awake=mine?petAwake():farmOf(owner).fed, isCat=PETS[pid].kind==='cat';
   FX_.forEach(f=>{
     if(f.k==='farm')return;
     const tag=`data-fix="${f.id}" style="cursor:pointer"${moving(f.id)}`;
-    if(f.k==='house'){const HS=mine?HOUSES[S.house.style]:isNpc(owner)?CHIEF_HOUSE():HOUSES.farm,H0=iso(f.gx+2.4,f.gy+2.4),[hn,hm]=rimg(f,HS.img);add(f.gx+f.gy+3.8,`<g ${tag} data-house="1">${mir(hm,H0.x,img(hn,H0.x+20,H0.y+22,HS.w,HS.ax,1))}</g>`)}
+    if(f.k==='house'){const HS=mine?HOUSES[S.house.style]:isNpc(owner)?CHIEF_HOUSE():(HOUSES[farmOf(owner).house]||HOUSES.farm),H0=iso(f.gx+2.4,f.gy+2.4),[hn,hm]=rimg(f,HS.img);add(f.gx+f.gy+3.8,`<g ${tag} data-house="1">${mir(hm,H0.x,img(hn,H0.x+20,H0.y+22,HS.w,HS.ax,1))}</g>`)}
     else if(f.k==='pethouse'){const [dn,dm]=rimg(f,isCat?'cathouse':'doghouse'),D0=dm?iso(f.gx+.9,f.gy+1.1):iso(f.gx+1.1,f.gy+.9);add(f.gx+f.gy+1.5,`<g ${tag}>${mir(dm,D0.x,img(dn,D0.x+4,D0.y+12,140,BAX[dn]||.55,1))}</g>`);
       const sp=petSpot([f]),dp=iso(sp.x,sp.y);if(!(placing&&placing.fixId===f.id))add(f.gx+f.gy+2.1,`<g data-pet="1" style="cursor:pointer"><g class="petbody">${mir(sp.x>f.gx+1,dp.x,img(petImg(pid,awake),dp.x,dp.y,awake?(isCat?60:66):(isCat?68:76)))}</g></g>${awake?'':`<g class="zz"><text x="${dp.x+20}" y="${dp.y-52}" font-family="Fredoka,sans-serif" font-weight="700" font-size="18" fill="#fff" stroke="${K}" stroke-width="1.2">z</text></g><g class="zz" style="animation-delay:1s"><text x="${dp.x+30}" y="${dp.y-64}" font-family="Fredoka,sans-serif" font-weight="700" font-size="14" fill="#fff" stroke="${K}" stroke-width="1.2">z</text></g>`}`)}
     else if(f.k==='board'){const bd=iso(f.gx+.5,f.gy+.9);add(f.gx+f.gy+1.5,`<g ${tag} data-board="1">${(([n,m])=>mir(m,bd.x,img(n,bd.x,bd.y,92)))(rimg(f,'board'))}</g>`)}
@@ -496,6 +500,7 @@ function sceneObjects(owner){
   plots.forEach((pl,k)=>{const g=plotGrid(k);add(g.gx+g.gy+1,plotSvg(k,pl,owner))});
   if(mine&&S.plots.length<MAX_PLOTS&&!placing){const k=S.plots.length,g=nextPlotCell();if(g)add(g.gx+g.gy+.8,lockedSvg(k,plotCost(k),plotReqLv(k)))}
   const put=(gx,gy,n,w)=>{const c=iso(gx,gy);add(gx+gy,img(n,c.x,c.y,w))};
+  if(!mine&&farmOf(owner).decos)farmOf(owner).decos.forEach(d=>{const D=DECOS[d.type];if(!D)return;const c=iso(d.gx+.5,d.gy+.5);add(d.gx+d.gy+1,(([n,m])=>mir(m,c.x,img(n,c.x,c.y+14,D.w)))(rimg(d,D.img)))});
   if(!mine&&isNpc(owner))CHIEF_DECOS.forEach(([t,gx,gy])=>{const D=DECOS[t];if(!D)return;const c=iso(gx+.5,gy+.5);add(gx+gy+1,img(D.img,c.x,c.y+14,D.w))});
   if(mine){
     S.decos.forEach(d=>{const D=DECOS[d.type];if(!D)return;const c=iso(d.gx+.5,d.gy+.5);add(d.gx+d.gy+1,`<g data-deco="${d.id}" style="cursor:pointer"${placing&&placing.moveId===d.id?' opacity=".35"':''}>${(([n,m])=>mir(m,c.x,img(n,c.x,c.y+14,D.w)))(rimg(d,D.img))}</g>`)});
@@ -654,6 +659,7 @@ function plotPop(k){
 }
 function plotAct(k,a){
   const mine=at==='me',F=mine?null:farmOf(at),pl=(mine?S.plots:F.plots)[k],x=st(pl),name=mine?'':P(at).name,fam=isFam(at);
+  if(!mine&&isReal(at)&&(a==='steal'||a==='water'||a==='bug'))return netPlotAct(k,a);
   if(a==='speed'){hidePop();return speedSheet(k)}
   if(a==='dig'){hidePop();const C=CROPS[pl.c],sd=sheet(`<h3>確定剷除${C.n}？</h3><div class="row" style="flex-wrap:nowrap;gap:12px"><img src="${A(pl.c)}" alt="" style="width:56px;height:56px;object-fit:contain"><p class="hint" style="margin:0">這塊地上的${C.n}會直接清掉，<b>不會退回種子，也拿不到任何收成</b>。剷除後無法復原。</p></div><button class="btn red" id="digok">確定剷除</button>`);sd.querySelector('[data-close]').textContent='取消';sd.querySelector('#digok').onclick=()=>{S.plots[k]={c:null};closeSheet();save();draw()};return}
   if(a==='water'||a==='bug'){
@@ -684,7 +690,7 @@ const guardRate=lv=>Math.min(.6,lv*.06);                   // 每級 +6%，10 �
 const bondLv=b=>{let l=0;BOND_LV.forEach((v,i)=>{if(b>=v)l=i});return l};
 function addBond(n){const p=S.pet,b=bondLv(p.bond);p.bond+=n;if(bondLv(p.bond)>b)toast(`和${petName()}的親密度升到 ${bondLv(p.bond)} 級！`)}
 function petPop(){
-  const mine=at==='me',pid=mine?S.pet.id:farmOf(at).pet,P_=PETS[pid],awake=mine?petAwake():farmOf(at).fed,dp=(()=>{const sp=petSpot(at==='me'?S.fixtures:DEFAULT_FIX);return iso(sp.x,sp.y)})();
+  const mine=at==='me',pid=mine?S.pet.id:farmOf(at).pet,P_=PETS[pid],awake=mine?petAwake():farmOf(at).fed,dp=(()=>{const sp=petSpot(at==='me'?S.fixtures:otherFx());return iso(sp.x,sp.y)})();
   const o={type:'pet',wx:dp.x,wy:dp.y-60};
   if(!mine)return showPop(o,`<div class="ph"><img class="ic" src="${A(petImg(pid,true))}" alt=""><div class="pt"><b>${esc(P(at).name)}家的${P_.n}</b><small>${isNpc(at)?'很友善，看到你來偷菜也不會叫':`親密 Lv${farmOf(at).bondLv}・${awake?'醒著，防小偷 '+Math.round(guardRate(farmOf(at).bondLv)*100)+'%':'睡著了，不會防小偷'}`}</small></div></div><div class="pa pet"><button class="btn sm alt" data-a="pet"><img src="${A('p_pet')}" alt="">摸摸</button></div>`,el=>{
     el.querySelector('[data-a=pet]').onclick=()=>{S.fpat=S.fpat||{};if((S.fpat[at]||0)>=FPAT_CAP)return toast(`今天已經摸過${P_.n} ${FPAT_CAP} 次了`);S.fpat[at]=(S.fpat[at]||0)+1;heartFx(3);petAnim('hop');if(Math.random()<.3)S.intimacy[at]=(S.intimacy[at]||0)+1;save();hidePop()}});
@@ -780,7 +786,7 @@ function giftSheet(){
   const items=invKeys(),name=P(at).name;
   const s=sheet(`<h3>送禮給${esc(name)}</h3><p class="hint">送 1 個作物，親密度 +2（家人 +3）。親密度到 4，對方每天會回送種子。</p>
    ${items.length?`<div class="list">${items.map(k=>`<div class="item">${itemIcon(k)}<div class="t"><b>${itemName(k)}</b><div class="m">庫存 ${S.inv[k]}</div></div><button class="btn sm" data-g="${k}">送 1 個</button></div>`).join('')}</div>`:'<p class="hint">倉庫沒有作物可送。</p>'}`);
-  s.querySelectorAll('[data-g]').forEach(b=>b.onclick=()=>{const k=b.dataset.g;S.inv[k]--;if(!S.inv[k])delete S.inv[k];S.intimacy[at]=(S.intimacy[at]||0)+(isFam(at)?3:2);addLog(`送給${name} 1 個${itemName(k)}`);toast('已送出');closeSheet();save();draw()});
+  s.querySelectorAll('[data-g]').forEach(b=>b.onclick=async()=>{const k=b.dataset.g;if(!S.inv[k])return;if(isReal(at)){b.disabled=true;const r=await Net.rpc('gift',{target:at,item:k}).catch(()=>null);if(!r||!r.ok){b.disabled=false;return toast(r&&r.why==='limit'?'今天送這位好友的禮物夠多了':'連線失敗，請稍後再試')}}S.inv[k]--;if(!S.inv[k])delete S.inv[k];S.intimacy[at]=(S.intimacy[at]||0)+(isFam(at)?3:2);addLog(`送給${name} 1 個${itemName(k)}`);toast('已送出');closeSheet();save();draw()});
 }
 
 /* ---------- 行情 ---------- */
@@ -814,6 +820,7 @@ function shopSheet(){
 /* ---------- 好友 ---------- */
 const hearts=n=>{n=Math.min(5,Math.floor((n||0)/2));return '♥'.repeat(n)+'♡'.repeat(5-n)};
 function friendsSheet(){
+  if(ONLINE&&ME)return netFriendsSheet();
   const rec=POOL.filter(p=>!S.friends.includes(p.id));
   const s=sheet(`<h3>好友<small>我的 ID：<span class="num">#${S.id}</span></small></h3>
    <p class="hint">村長是每位玩家都有的好友：每天可以去他家偷 3 次菜、幫忙澆水除蟲，算是村長給大家的福利。真人好友要等遊戲上伺服器後，用玩家代碼或邀請連結加入。</p>
@@ -831,13 +838,15 @@ function friendsSheet(){
 }
 function addFriend(id){if(S.friends.includes(id))return;S.friends.push(id);S.intimacy[id]=S.intimacy[id]||0;addLog(`和${P(id).name}成為好友`);toast(`已加 ${P(id).name} 為好友`);save();friendsSheet()}
 function friendMenu(f){
+  if(isReal(f))return netFriendMenu(f);
   const p=P(f),fam=isFam(f);
   if(p.npc){sheet(`<h3>${esc(p.name)}</h3><p class="hint">村長是每位玩家的固定好友，不能刪除，也不能設成家人（家人不能互偷，會失去偷菜福利）。</p>`);return}
   const s=sheet(`<h3>${esc(p.name)}</h3><button class="btn" id="ft" ${!fam&&S.family.length>=MAX_FAMILY?'disabled':''}>${fam?'取消家人':'設為家人'}</button><button class="btn red" id="fd">刪除好友</button>`);
   s.querySelector('#ft').onclick=()=>{if(fam)S.family=S.family.filter(x=>x!==f);else{S.family.push(f);addLog(`和${p.name}成為家人`)}save();friendsSheet()};
   s.querySelector('#fd').onclick=()=>{const c=sheet(`<h3>確定刪除${esc(p.name)}？</h3><p class="hint">刪除後親密度、家人關係都會清掉，之後要重新加好友。</p><button class="btn red" id="y">確定刪除</button>`);c.querySelector('[data-close]').textContent='取消';c.querySelector('#y').onclick=()=>{S.friends=S.friends.filter(x=>x!==f);S.family=S.family.filter(x=>x!==f);delete S.intimacy[f];if(at===f){at='me';fitFarm()}addLog(`刪除了好友${p.name}`);save();draw(true);friendsSheet()}};
 }
-function visit(f){hidePop();stat('visits');if(placing)endPlace();if(editMode){editMode=false;document.getElementById('placebar').innerHTML=''}refreshFarm(f);at=f;(S.known[periodKey()]=S.known[periodKey()]||{})[f]=true;document.getElementById('topmsg').innerHTML='';save();draw(true);fitFarm()}
+function visit(f){if(isReal(f))return netVisit(f);doVisit(f)}
+function doVisit(f){hidePop();stat('visits');if(placing)endPlace();if(editMode){editMode=false;document.getElementById('placebar').innerHTML=''}refreshFarm(f);at=f;(S.known[periodKey()]=S.known[periodKey()]||{})[f]=true;document.getElementById('topmsg').innerHTML='';save();draw(true);fitFarm()}
 
 /* ---------- 倉庫／設定 ---------- */
 function bagSheet(){
@@ -847,11 +856,12 @@ function bagSheet(){
    ${Object.keys(S.fixInv).some(k=>S.fixInv[k])?`<h4>庭園物件</h4><div class="list">${Object.keys(S.fixInv).filter(k=>S.fixInv[k]).map(k=>`<div class="item"><img class="ic" src="${A(k)}" alt=""><div class="t"><b>${FIXK[k].n}</b><div class="m">從莊園收回的</div></div><div class="row" style="flex-wrap:nowrap;gap:8px"><span class="num">×${S.fixInv[k]}</span><button class="btn sm" data-fx="${k}">擺放</button></div></div>`).join('')}</div>`:''}
    <h4>裝飾品</h4>${dk.length?`<div class="list">${dk.map(k=>`<div class="item"><img class="ic" src="${A(DECOS[k].img)}" alt=""><div class="t"><b>${DECOS[k].n}</b><div class="m">魅力 +${DECOS[k].charm}</div></div><div class="row" style="flex-wrap:nowrap;gap:8px"><span class="num">×${S.decoInv[k]}</span><button class="btn sm" data-pl="${k}">擺放</button></div></div>`).join('')}</div>`:'<p class="hint">倉庫沒有裝飾品。擺好的裝飾品點一下可以移動或收回。</p>'}
    <h4>種子</h4>${sd.length?`<div class="list">${sd.map(c=>`<div class="item">${cropIcon(c)}<div class="t"><b>${CROPS[c].n}種子</b></div><span class="num" style="font-size:18px">×${S.seeds[c]}</span></div>`).join('')}</div>`:'<p class="hint">沒有種子，可到商店購買。</p>'}
-   <h4>設定</h4><div class="row" style="flex-wrap:nowrap"><input class="txt" id="nm" value="${esc(S.name)}" maxlength="12" aria-label="農場名稱"><button class="btn sm" id="rn">改名</button></div>
+   <h4>設定</h4>${ONLINE&&ME?`<p class="hint">登入帳號：${esc(ME.email||'')}・玩家代碼 <b>${ME.code}</b></p>`:''}<div class="row" style="flex-wrap:nowrap"><input class="txt" id="nm" value="${esc(S.name)}" maxlength="12" aria-label="農場名稱"><button class="btn sm" id="rn">改名</button></div>
 `);
   s.querySelector('#sm')?.addEventListener('click',()=>sellSheet('me'));
   s.querySelectorAll('[data-pl]').forEach(b=>b.onclick=()=>startPlace(b.dataset.pl));
   s.querySelectorAll('[data-fx]').forEach(b=>b.onclick=()=>startPlace(null,null,null,b.dataset.fx));
+  if(ONLINE&&ME){const lo=document.createElement('button');lo.className='btn alt';lo.textContent='登出';lo.onclick=()=>{const c=sheet('<h3>確定登出？</h3><p class="hint">進度已經存在雲端，下次用同一個 Email 登入就會接回來。</p><button class="btn" id="y">登出</button>');c.querySelector('[data-close]').textContent='取消';c.querySelector('#y').onclick=()=>Net.logout()};s.querySelector('.sheet').insertBefore(lo,s.querySelector('[data-close]'))}
   s.querySelector('#rn').onclick=()=>{const v=s.querySelector('#nm').value.trim();if(v){S.name=v;save();draw();toast('已改名')}};
 }
 
@@ -1220,7 +1230,8 @@ function draw(force){
 }
 function tick(){newDay();sim();petDecay();ordersTick();tutTick();achCheck();draw();if(pop&&!document.querySelector('.scrim')){if(pop.type==='plot'&&pop.owner===at)plotPop(pop.k);}}
 function start(data){
-  S=(data&&data.v===2)?data:(Store.load()||fresh());
+  if(ONLINE){const loc=Store.load(),cl=data&&data.cloud;S=(loc&&loc.v===2&&(!cl||(loc.savedAt||0)>(cl.savedAt||0)))?loc:(cl&&cl.v===2?cl:null)||fresh()}
+  else S=(data&&data.v===2)?data:(Store.load()||fresh());
   if(!S||S.v!==2)fresh();
   if(!S.house)S.house={style:'farm',owned:['farm']};
   if(!S.pet){const b=(S.dog&&S.dog.breed)||'shiba';S.pet={id:'dog:'+b,owned:((S.dog&&S.dog.owned)||['shiba']).map(x=>'dog:'+x),full:80,happy:70,t:Date.now(),chosen:true};delete S.dog}
@@ -1249,5 +1260,164 @@ function start(data){
   if(HAS_CAT&&!S.pet.chosen)choosePet();
 }
 window.claude?.hot?.snapshot?.(()=>S);
-window.claude?.hot?.ready?window.claude.hot.ready(start):start(window.claude?.hot?.data??{});
+/* =========================================================
+   連線版（Supabase）：登入、雲端存檔、真人好友、偷菜幫忙送禮
+   在 GitHub 網址上自動啟用；其他地方（例如預覽）維持單機版
+   ========================================================= */
+const SB_URL='https://iejgxjeezrzgllhgmfbe.supabase.co', SB_KEY='sb_publishable_CqDKaHLXZr94DF0ENpXQEg_HTZN0Gcu';
+const ONLINE=!!(window.supabase&&window.supabase.createClient)&&(location.hostname.endsWith('github.io')||/[?&]online=1/.test(location.search));
+let sb=null,ME=null,NETF={},NET_IN=[],NET_OUT=[],NET_FAMREQ=[],NET_MYFAM=[],cloudT=null,netBusy=false;
+const FCOL=['#e2513a','#8e5bd1','#d0457a','#1e88a8','#2e8b3e','#ef7d00','#6d4c41','#00897b','#5c6bc0'];
+const isReal=f=>ONLINE&&!!NETF[f];
+const Net={
+  ok:r=>{if(r.error)throw r.error;return r.data},
+  async init(){sb=window.supabase.createClient(SB_URL,SB_KEY);const r=await sb.auth.getSession();return r.data&&r.data.session},
+  login:email=>sb.auth.signInWithOtp({email,options:{emailRedirectTo:location.origin+location.pathname}}),
+  async logout(){await Net.flush();await sb.auth.signOut();location.replace(location.origin+location.pathname)},
+  async profile(uid){for(let i=0;i<5;i++){const r=await sb.from('profiles').select('*').eq('id',uid).maybeSingle();if(r.data)return r.data;await new Promise(z=>setTimeout(z,600))}return null},
+  async loadMine(){const r=await sb.from('farms').select('state').eq('owner',ME.id).maybeSingle();return r.data&&r.data.state},
+  cloudState(){const o=JSON.parse(JSON.stringify(S));o.farms={};return o},
+  saveMine(){return sb.from('farms').upsert({owner:ME.id,state:Net.cloudState(),updated_at:new Date().toISOString()}).then(Net.ok)},
+  queue(){if(!ME)return;clearTimeout(cloudT);cloudT=setTimeout(()=>Net.saveMine().catch(e=>console.warn('cloud save',e)),2000)},
+  async flush(){if(!ME)return;clearTimeout(cloudT);try{await Net.saveMine()}catch(e){console.warn(e)}},
+  async loadFarm(uid){const r=await sb.from('farms').select('state').eq('owner',uid).maybeSingle();return r.data&&r.data.state},
+  rpc:(fn,args)=>sb.rpc(fn,args).then(Net.ok),
+  async events(){const r=await sb.from('events').select('*').eq('target',ME.id).eq('seen',false).order('id');return r.data||[]},
+  markSeen:ids=>sb.from('events').update({seen:true}).in('id',ids).then(Net.ok),
+  updateProfile:f=>ME&&sb.from('profiles').update(f).eq('id',ME.id).then(Net.ok).catch(e=>console.warn(e)),
+  delFriendship:id=>sb.from('friendships').delete().eq('id',id).then(Net.ok),
+};
+// 好友名單（含邀請）
+async function syncFriends(){
+  if(!ONLINE||!ME)return;
+  const rows=(await sb.from('friendships').select('*')).data||[];
+  const other=r=>r.requester===ME.id?r.addressee:r.requester,ids=[...new Set(rows.map(other))];
+  const profs=ids.length?((await sb.from('profiles').select('id,code,name,avatar').in('id',ids)).data||[]):[];
+  NETF={};profs.forEach(p=>{NETF[p.id]={id:p.id,code:p.code,name:p.name,avatar:p.avatar,c:FCOL[Math.floor(hsh(p.id)*FCOL.length)]}});
+  rows.forEach(r=>{const o=NETF[other(r)];if(o){o.row=r.id;o.status=r.status}});
+  const acc=rows.filter(r=>r.status==='accepted'&&NETF[other(r)]);
+  NET_IN=rows.filter(r=>r.status==='pending'&&r.addressee===ME.id&&NETF[r.requester]).map(r=>({row:r.id,id:r.requester}));
+  NET_OUT=rows.filter(r=>r.status==='pending'&&r.requester===ME.id&&NETF[r.addressee]).map(r=>({row:r.id,id:r.addressee}));
+  NET_FAMREQ=acc.filter(r=>r.family_req&&r.family_req!==ME.id&&!r.family).map(r=>other(r));
+  NET_MYFAM=acc.filter(r=>r.family_req===ME.id&&!r.family).map(r=>other(r));
+  S.friends=[CHIEF,...acc.map(other)];S.family=acc.filter(r=>r.family).map(other);
+  if(at!=='me'&&!P(at)){at='me';fitFarm()}
+  draw(true);
+}
+// 別人對我做的事（偷菜、幫忙、送禮），上線時套用
+async function applyEvents(){
+  if(!ONLINE||!ME||netBusy)return;netBusy=true;
+  try{
+    const evs=await Net.events();if(!evs.length)return;
+    const nm=id=>(NETF[id]&&NETF[id].name)||'有人';
+    evs.forEach(e=>{const pl=S.plots[e.plot],same=pl&&pl.c&&Math.floor(pl.t)===Math.floor(Number(e.plant_t)),cn=e.item&&CROPS[e.item]?CROPS[e.item].n:'作物';
+      if(e.kind==='steal'){if(same)pl.s=(pl.s||0)+1;addLog(`${nm(e.actor)} 偷走你 1 個${cn}`)}
+      else if(e.kind==='caught')addLog(`${nm(e.actor)}想偷你的${cn}，被${petName()}發現跑掉了`);
+      else if(e.kind==='water'){if(same)pl.df=true;addLog(`${isFam(e.actor)?'家人':''}${nm(e.actor)}幫你的${pl&&pl.c?CROPS[pl.c].n:'作物'}澆了水`)}
+      else if(e.kind==='bug'){if(same)pl.bf=true;addLog(`${isFam(e.actor)?'家人':''}${nm(e.actor)}幫你的${pl&&pl.c?CROPS[pl.c].n:'作物'}除了蟲`)}
+      else if(e.kind==='gift'&&e.item){const [c]=splitKey(e.item);if(CROPS[c]){S.inv[e.item]=(S.inv[e.item]||0)+1;discover(e.item);addLog(`${nm(e.actor)} 送你 1 個${itemName(e.item)}`)}}});
+    Store.save(S);await Net.saveMine();await Net.markSeen(evs.map(e=>e.id));draw(true);
+  }catch(e){console.warn('events',e)}finally{netBusy=false}
+}
+// 好友農場資料 → 拜訪時用的格式
+function farmFromState(st){
+  const pet=st.pet||{},hrs=Math.max(0,(Date.now()-(pet.t||Date.now()))/H);
+  return {n:(st.plots||[]).length,plots:st.plots||[],pet:PETS[pet.id]?pet.id:'dog:shiba',bondLv:bondLv(pet.bond||0),fed:(pet.full||0)-hrs>=15,
+    pos:st.plotPos,fx:st.fixtures,house:st.house&&st.house.style,decos:st.decos||[],real:true};
+}
+async function netVisit(f){
+  toast(`前往${P(f).name}的菜園…`);
+  try{const st=await Net.loadFarm(f);if(!st)return toast(`${P(f).name}還沒有建立農場`);S.farms[f]=farmFromState(st);doVisit(f)}
+  catch(e){toast('連線失敗，請稍後再試')}
+}
+const WHY={limit:'今天在這家的次數用完了，明天再來',last_one:'只剩最後一個，留給主人吧',not_ripe:'這塊已經被收成了',not_friend:'你們還不是好友',family:'家人之間不能偷菜',
+  not_needed:'這塊地已經不需要幫忙了',already:'已經有人幫忙過了',empty:'這塊地是空的',no_farm:'對方還沒有農場'};
+async function netPlotAct(k,a){
+  const F=farmOf(at),pl=F.plots[k],name=P(at).name;hidePop();
+  try{
+    if(a==='steal'){
+      const r=await Net.rpc('steal',{target:at,k});S.steal[at]=(S.steal[at]||0)+1;
+      if(r.ok){pl.s=(pl.s||0)+1;S.inv[r.crop]=(S.inv[r.crop]||0)+1;stat('steals');discover(r.crop);gain(3,0);fx(`+1 ${CROPS[r.crop].n}`);addLog(`從${name}家偷了 1 個${CROPS[r.crop].n}`)}
+      else if(r.why==='caught'){const lose=Math.min(S.coins,15),pn=PETS[F.pet].n;S.coins-=lose;toast(`被${name}家的${pn}發現了！掉了 ${lose} 金幣`);addLog(`偷${name}的菜被${pn}發現，掉了 ${lose} 金幣`)}
+      else{if(r.why==='limit')S.steal[at]=STEAL_CAP;toast(WHY[r.why]||'現在不能偷')}
+    }else{
+      const r=await Net.rpc('help',{target:at,k,what:a});
+      if(r.ok){S.help[at]=(S.help[at]||0)+1;stat('helps');const m=r.family?2:1;gain(2*m,5*m);if(Math.random()<.35)S.intimacy[at]=(S.intimacy[at]||0)+1;fx(`+${5*m} 金幣`);if(a==='water')pl.df=true;else pl.bf=true}
+      else toast(WHY[r.why]||'現在不能幫忙');
+    }
+  }catch(e){toast('連線失敗，請稍後再試')}
+  save();draw(true);
+}
+// 登入畫面
+function loginScreen(msg){
+  const L=document.getElementById('layer');L.innerHTML=`<div class="scrim" style="align-items:center"><div class="sheet panel" role="dialog" aria-modal="true" style="max-width:380px">
+   <h3>好友菜園</h3><p class="hint">用 Email 登入。輸入信箱後會收到一封登入信，點信裡的連結就會回到遊戲，不需要密碼。</p>
+   <input class="txt" id="lem" type="email" inputmode="email" autocomplete="email" placeholder="你的 Email" aria-label="Email">
+   <button class="btn" id="lgo">寄登入信</button><p class="hint" id="lmsg">${msg||''}</p></div></div>`;
+  const go=async()=>{const em=L.querySelector('#lem').value.trim(),m=L.querySelector('#lmsg');if(!/^\S+@\S+\.\S+$/.test(em)){m.textContent='Email 格式不對';return}
+    L.querySelector('#lgo').disabled=true;m.textContent='寄送中…';const r=await Net.login(em);
+    if(r.error){m.textContent='寄送失敗：'+r.error.message;L.querySelector('#lgo').disabled=false}
+    else m.innerHTML=`登入信已寄到 <b>${esc(em)}</b>。請到信箱點「Log In」連結（找不到請看垃圾郵件）。<br>建議用同一個瀏覽器打開連結。`};
+  L.querySelector('#lgo').onclick=go;L.querySelector('#lem').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+}
+async function boot(){
+  if(!ONLINE)return start(window.claude?.hot?.data??{});
+  document.getElementById('layer').innerHTML='<div class="toast panel" style="top:45%">連線中…</div>';
+  let session=null;
+  try{session=await Net.init()}catch(e){document.getElementById('layer').innerHTML='';return loginScreen('連不上伺服器，請確認網路後重新整理。')}
+  if(!session){document.getElementById('layer').innerHTML='';return loginScreen()}
+  ME=await Net.profile(session.user.id);
+  if(!ME){document.getElementById('layer').innerHTML='';return loginScreen('讀不到玩家資料，請重新整理再試一次。')}
+  ME.email=session.user.email;
+  let cloud=null;try{cloud=await Net.loadMine()}catch(e){}
+  document.getElementById('layer').innerHTML='';
+  start({cloud});
+  if(!cloud){S.name=ME.name&&ME.name!=='新農夫'?ME.name:S.name;Net.updateProfile({name:S.name,avatar:S.avatar});await Net.flush()}
+  await syncFriends();await applyEvents();
+  const add=new URLSearchParams(location.search).get('add');
+  if(add){history.replaceState(null,'',location.pathname);netAddFriend(add)}
+  setInterval(()=>{syncFriends().catch(()=>{});applyEvents()},45000);
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)Net.flush();else{syncFriends().catch(()=>{});applyEvents()}});
+}
+const ADDMSG={sent:'好友邀請已送出，等對方接受',accepted:'你們已經是好友了！',already:'你們已經是好友了',pending:'已經送過邀請，等對方接受',not_found:'找不到這個玩家代碼',self:'這是你自己的代碼'};
+async function netAddFriend(code){try{const r=await Net.rpc('add_friend',{friend_code:code});toast(ADDMSG[r]||r);await syncFriends();if(document.querySelector('.scrim'))friendsSheet()}catch(e){toast('連線失敗，請稍後再試')}}
+
+function inviteLink(){return location.origin+location.pathname+'?add='+ME.code}
+function netFriendsSheet(){
+  const fr=S.friends.filter(f=>!isNpc(f)),row=(f,btns,sub)=>{const p=P(f);return `<div class="item">${fAv(p,44)}<div class="t"><b>${esc(p.name)}</b> ${isFam(f)?'<span class="chip fam">家人</span>':''}<div class="m">${sub||('代碼 '+(p.code||''))}</div></div><div class="row" style="flex-wrap:nowrap;gap:6px">${btns}</div></div>`};
+  const chief=P(CHIEF);
+  const s=sheet(`<h3>好友<small>我的代碼：<b class="num">${ME.code}</b></small></h3>
+   <div class="row"><button class="btn" id="cplink">複製邀請連結</button><button class="btn alt" id="cpcode">複製我的代碼</button></div>
+   <p class="hint">把邀請連結傳給朋友，他點開登入後就會送出好友邀請；或請他在下面輸入你的代碼。成為好友要對方按接受。</p>
+   ${NET_IN.length?`<h4>好友邀請（${NET_IN.length}）</h4><div class="list">${NET_IN.map(r=>row(r.id,`<button class="btn sm" data-acc="${r.row}">接受</button><button class="btn sm alt" data-dec="${r.row}">拒絕</button>`,'想加你為好友')).join('')}</div>`:''}
+   ${NET_FAMREQ.length?`<h4>家人邀請</h4><div class="list">${NET_FAMREQ.map(f=>row(f,`<button class="btn sm" data-famok="${f}">同意</button>`,'想和你成為家人')).join('')}</div>`:''}
+   <h4>我的好友（${fr.length}）</h4>
+   <div class="list"><div class="item">${fAv(chief,44)}<div class="t"><b>村長</b> <span class="chip ok">福利</span><div class="m">每天可以偷 3 次菜</div></div><div class="row" style="flex-wrap:nowrap;gap:6px"><button class="btn sm" data-v="${CHIEF}">拜訪</button></div></div>
+   ${fr.map(f=>row(f,`<button class="btn sm" data-v="${f}">拜訪</button><button class="btn sm alt" data-m="${f}" aria-label="更多">⋯</button>`,`代碼 ${P(f).code}・${hearts(S.intimacy[f])}${NET_MYFAM.includes(f)?'・家人邀請等待中':''}`)).join('')}</div>
+   ${fr.length?'':'<p class="hint">還沒有真人好友，先把邀請連結傳給朋友吧。</p>'}
+   <h4>用代碼加好友</h4><div class="row" style="flex-wrap:nowrap"><input class="txt" id="fid" maxlength="6" placeholder="輸入 6 碼玩家代碼" aria-label="玩家代碼" style="text-transform:uppercase"><button class="btn sm" id="find">送出邀請</button></div>
+   ${NET_OUT.length?`<h4>等待對方接受</h4><div class="list">${NET_OUT.map(r=>row(r.id,`<button class="btn sm alt" data-cancel="${r.row}">取消</button>`,'邀請已送出')).join('')}</div>`:''}
+   <h4>家人（${S.family.length}/${MAX_FAMILY}）</h4><p class="hint">家人之間收購價自動共享、不能互偷，幫家人澆水除蟲獎勵加倍。設為家人要對方同意。</p>
+   <h4>動態</h4><ul class="log">${S.log.slice(0,10).map(l=>`<li><time>${hhmm(l.t)}</time><span>${esc(l.m)}</span></li>`).join('')}</ul>`);
+  const copy=(t,m)=>{(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast(m)).catch(()=>{prompt('複製這段文字：',t)})};
+  s.querySelector('#cplink').onclick=()=>copy(`來玩好友菜園，加我好友：${inviteLink()}`,'邀請連結已複製，貼給朋友就好');
+  s.querySelector('#cpcode').onclick=()=>copy(ME.code,'代碼已複製');
+  s.querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>{closeSheet();visit(b.dataset.v)});
+  s.querySelectorAll('[data-m]').forEach(b=>b.onclick=()=>friendMenu(b.dataset.m));
+  s.querySelectorAll('[data-acc]').forEach(b=>b.onclick=async()=>{b.disabled=true;await Net.rpc('respond_friend',{req_id:+b.dataset.acc,accept:true}).catch(()=>toast('連線失敗'));toast('成為好友了！');await syncFriends();friendsSheet()});
+  s.querySelectorAll('[data-dec]').forEach(b=>b.onclick=async()=>{b.disabled=true;await Net.rpc('respond_friend',{req_id:+b.dataset.dec,accept:false}).catch(()=>toast('連線失敗'));await syncFriends();friendsSheet()});
+  s.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=async()=>{b.disabled=true;await Net.delFriendship(+b.dataset.cancel).catch(()=>toast('連線失敗'));await syncFriends();friendsSheet()});
+  s.querySelectorAll('[data-famok]').forEach(b=>b.onclick=async()=>{b.disabled=true;const r=await Net.rpc('set_family',{friend:b.dataset.famok,want:true}).catch(()=>null);toast(r==='family'?'成為家人了！':r==='full'?'家人已經滿 4 位':'連線失敗');await syncFriends();friendsSheet()});
+  s.querySelector('#find').onclick=()=>{const q=s.querySelector('#fid').value.trim().toUpperCase();if(q.length!==6)return toast('玩家代碼是 6 碼');netAddFriend(q)};
+}
+function netFriendMenu(f){
+  const p=P(f),fam=isFam(f),asked=NET_MYFAM.includes(f);
+  const s=sheet(`<h3>${esc(p.name)}<small>代碼 ${p.code}</small></h3><button class="btn" id="ft" ${!fam&&(asked||S.family.length>=MAX_FAMILY)?'disabled':''}>${fam?'取消家人':asked?'家人邀請等待中':'邀請成為家人'}</button><button class="btn red" id="fd">刪除好友</button>`);
+  s.querySelector('#ft').onclick=async()=>{const r=await Net.rpc('set_family',{friend:f,want:!fam}).catch(()=>null);
+    toast({removed:'已取消家人',requested:'家人邀請已送出，等對方同意',family:'成為家人了！',full:'家人已經滿 4 位',already:'你們已經是家人'}[r]||'連線失敗');await syncFriends();friendsSheet()};
+  s.querySelector('#fd').onclick=()=>{const c=sheet(`<h3>確定刪除${esc(p.name)}？</h3><p class="hint">刪除後要重新送邀請、對方接受才能再成為好友。</p><button class="btn red" id="y">確定刪除</button>`);c.querySelector('[data-close]').textContent='取消';
+    c.querySelector('#y').onclick=async()=>{await Net.delFriendship(p.row).catch(()=>toast('連線失敗'));delete S.intimacy[f];if(at===f){at='me';fitFarm()}addLog(`刪除了好友${p.name}`);await syncFriends();save();friendsSheet()}};
+}
+
+if(ONLINE)boot();else window.claude?.hot?.ready?window.claude.hot.ready(start):start(window.claude?.hot?.data??{});
 </script>
