@@ -848,23 +848,13 @@ function bagSheet(){
    <h4>裝飾品</h4>${dk.length?`<div class="list">${dk.map(k=>`<div class="item"><img class="ic" src="${A(DECOS[k].img)}" alt=""><div class="t"><b>${DECOS[k].n}</b><div class="m">魅力 +${DECOS[k].charm}</div></div><div class="row" style="flex-wrap:nowrap;gap:8px"><span class="num">×${S.decoInv[k]}</span><button class="btn sm" data-pl="${k}">擺放</button></div></div>`).join('')}</div>`:'<p class="hint">倉庫沒有裝飾品。擺好的裝飾品點一下可以移動或收回。</p>'}
    <h4>種子</h4>${sd.length?`<div class="list">${sd.map(c=>`<div class="item">${cropIcon(c)}<div class="t"><b>${CROPS[c].n}種子</b></div><span class="num" style="font-size:18px">×${S.seeds[c]}</span></div>`).join('')}</div>`:'<p class="hint">沒有種子，可到商店購買。</p>'}
    <h4>設定</h4><div class="row" style="flex-wrap:nowrap"><input class="txt" id="nm" value="${esc(S.name)}" maxlength="12" aria-label="農場名稱"><button class="btn sm" id="rn">改名</button></div>
-   <p class="hint">測試加速：作物以小時計，測試時可以加快時間。只影響之後新種下的作物。</p>
-   <div class="seg">${[1,60,600].map(v=>`<button data-sp="${v}" aria-pressed="${speed()===v}">${v===1?'正常':'×'+v}</button>`).join('')}</div>
-   <button class="btn alt" id="rs">重新開始</button>`);
+`);
   s.querySelector('#sm')?.addEventListener('click',()=>sellSheet('me'));
   s.querySelectorAll('[data-pl]').forEach(b=>b.onclick=()=>startPlace(b.dataset.pl));
   s.querySelectorAll('[data-fx]').forEach(b=>b.onclick=()=>startPlace(null,null,null,b.dataset.fx));
   s.querySelector('#rn').onclick=()=>{const v=s.querySelector('#nm').value.trim();if(v){S.name=v;save();draw();toast('已改名')}};
-  s.querySelectorAll('[data-sp]').forEach(b=>b.onclick=()=>{S.speed=+b.dataset.sp;save();bagSheet();toast(S.speed===1?'恢復正常速度':`時間加速 ×${S.speed}`)});
-  s.querySelector('#rs').onclick=resetConfirm;
 }
 
-function resetConfirm(){
-  const c=sheet('<h3>確定重新開始？</h3><div class="rumor" style="background:#ffd1c6">所有進度都會清空：金幣、鑽石、等級、作物、寵物、房子、裝飾、圖鑑、成就和好友紀錄。<b>清空後無法復原。</b></div><button class="btn red" id="y">確定清空，重新開始</button>');
-  c.querySelector('[data-close]').textContent='取消';
-  c.querySelector('#y').onclick=()=>{hidePop();if(placing)endPlace();editMode=false;document.getElementById('placebar').innerHTML='';
-    fresh();at='me';ordersTick();lastAchN=achReady();closeSheet();save();draw(true);fitFarm();toast('已重新開始');if(HAS_CAT&&!S.pet.chosen)choosePet()};
-}
 /* =========================================================
    稀有作物（金色 2%、炫光琉璃 0.3%）
    ========================================================= */
@@ -1197,7 +1187,7 @@ function drawHud(){
   document.getElementById('hud').innerHTML=`
    <div class="me panel"><button class="avabtn" id="hava" aria-label="更換頭像">${avHtml(S.avatar,42,S.color,'我','ava')}</button><div class="info"><b>${esc(S.name)}</b><div class="stats"><span class="lvl">Lv${l}</span><span class="coin"><img src="${A('coin')}" alt="金幣">${S.coins}</span><span class="coin"><img src="${A('i_diamond')}" alt="鑽石">${S.diamonds}</span></div><div class="xpbar"><i style="width:${Math.round((S.xp-a)/(b-a)*100)}%"></i></div></div></div>
    <div class="rcol"><div class="clock panel">${periodName()}收購價<br><b>${fmtDur(nextRefresh())}</b> 後換盤${speed()>1?`<br><span style="color:var(--sky);font-weight:700">加速 ×${speed()}</span>`:''}</div>
-   <div class="hbtns"><button class="hbtn panel" id="hmail" aria-label="信箱"><img src="${A('i_mail')}" alt="">${unreadMail()?`<span class="badge">${unreadMail()}</span>`:''}</button><button class="hbtn panel" id="hedit" aria-label="佈置莊園"><img src="${A('i_deco')}" alt=""></button><button class="hbtn panel" id="hreset" aria-label="重新開始" style="font:700 12px var(--f-body)">重來</button><button class="hbtn panel charmchip" id="hcharm" aria-label="魅力值"><img src="${A('i_charm')}" alt=""><span class="num">${charm().total}</span></button></div></div>`;
+   <div class="hbtns"><button class="hbtn panel" id="hmail" aria-label="信箱"><img src="${A('i_mail')}" alt="">${unreadMail()?`<span class="badge">${unreadMail()}</span>`:''}</button><button class="hbtn panel" id="hedit" aria-label="佈置莊園"><img src="${A('i_deco')}" alt=""></button><button class="hbtn panel charmchip" id="hcharm" aria-label="魅力值"><img src="${A('i_charm')}" alt=""><span class="num">${charm().total}</span></button></div></div>`;
   const dock=document.getElementById('dock');
   if(at==='me')dock.innerHTML=`
    <button class="tool" id="t1"><img src="${A('i_order')}" alt="">佈告欄${S.orders.some(o=>!o.done&&orderReady(o))?'<span class="badge">!</span>':''}</button>
@@ -1212,7 +1202,7 @@ function drawHud(){
    <button class="tool" id="h3">${TOOLICON.gift}送禮</button>
    <button class="tool" id="h4">${TOOLICON.friends}好友</button>`;
   const on=(id,f)=>{const el=document.getElementById(id);if(el)el.onclick=f};
-  on('t1',boardSheet);on('t2',marketSheet);on('t3',shopSheet);on('t4',friendsSheet);on('t5',bagSheet);on('t6',()=>collectSheet());on('hmail',mailSheet);on('hcharm',charmSheet);on('hedit',enterEdit);on('hreset',resetConfirm);on('hava',avatarSheet);
+  on('t1',boardSheet);on('t2',marketSheet);on('t3',shopSheet);on('t4',friendsSheet);on('t5',bagSheet);on('t6',()=>collectSheet());on('hmail',mailSheet);on('hcharm',charmSheet);on('hedit',enterEdit);on('hava',avatarSheet);
   document.documentElement.style.setProperty('--hudb',Math.ceil(document.getElementById('hud').getBoundingClientRect().bottom)+'px');
   tutCard();
   on('h1',()=>{at='me';draw(true);fitFarm()});on('h2',()=>sellSheet(at));on('h3',giftSheet);on('h4',friendsSheet);
@@ -1250,6 +1240,7 @@ function start(data){
   S.decos=S.decos.filter(d=>{if(inb(d.gx,d.gy))return true;S.decoInv[d.type]=(S.decoInv[d.type]||0)+1;return false});
   S.friends=S.friends.filter(f=>P(f));if(!S.friends.includes(CHIEF))S.friends.unshift(CHIEF);S.family=S.family.filter(f=>P(f)&&!isNpc(f));
   Object.keys(S.intimacy).forEach(f=>{if(!P(f))delete S.intimacy[f]});Object.keys(S.farms).forEach(f=>{if(!P(f))delete S.farms[f]});if(at!=='me'&&!P(at))at='me';
+  S.speed=1;
   if(!S.avatar)S.avatar='av_boy1';
   S.pet.owned.forEach(id=>{if(!S.codex['pet:'+id])S.codex['pet:'+id]=Date.now()});
   if(S.ordWeek==null){S.ordWeek=0;S.refreshFree=FREE_REFRESH}
